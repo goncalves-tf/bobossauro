@@ -15,18 +15,20 @@
     <link rel="apple-touch-startup-image" media="screen and (device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="./splash/iphone15.png" />
     <link rel="apple-touch-startup-image" media="screen and (device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="./splash/iphone14.png" />
     <title>Bobossauro</title>
-    <style>html,body{background:#f5b530;height:100%;margin:0}#abertura{z-index:200;pointer-events:none;background-color:#f5b530;background-image:radial-gradient(#1c1a1f17 1.6px,#0000 1.8px);background-size:22px 22px;position:fixed;top:0;bottom:0;left:0;right:0}html[data-noite="1"] #abertura{background-color:#2a2150}#abertura img{display:block;position:absolute}.ab-bobo{width:184px;height:189px;top:calc(50% - 123px);left:calc(50% - 92px)}.ab-titulo{width:242px;height:41px;top:calc(50% + 85px);left:calc(50% - 121px)}</style>
+    <style>html,body{background:#f5b530;height:100%;margin:0}#abertura{z-index:200;pointer-events:none;position:fixed;top:0;bottom:0;left:0;right:0}.ab-fundo{background-color:#f5b530;background-image:radial-gradient(#1c1a1f17 1.6px,#0000 1.8px);background-size:22px 22px;position:absolute;top:0;bottom:0;left:0;right:0}.ab-faixa{display:none}@media (display-mode:standalone){.ab-faixa{height:env(safe-area-inset-top,0px);background:#2a2150;display:block;position:absolute;top:0;left:0;right:0;box-shadow:0 3px #fff}}#abertura img{display:block;position:absolute}.ab-bobo{transform-origin:50% 92%;width:184px;height:189px;animation:1.2s ease-in-out infinite ab-respira;top:calc(50% - 123px);left:calc(50% - 92px)}.ab-titulo{width:242px;height:41px;top:calc(50% + 85px);left:calc(50% - 121px)}@keyframes ab-respira{0%,to{transform:scale(1)}50%{transform:scale(1.03,.97)}}@media (prefers-reduced-motion:reduce){.ab-bobo{animation:none}}</style>
     <script>
       // Mesmo horário da noite do app (19h às 5h): a abertura já nasce na cor certa.
       try { var h = new Date().getHours(); if (h >= 19 || h < 5) document.documentElement.dataset.noite = '1' } catch (e) {}
       // Os cartões do app esperam o Bobo da abertura começar a voar para colar na tela.
       document.documentElement.classList.add('abrindo-espera')
     </script>
-    <script type="module" crossorigin src="/bobossauro/assets/index-DRNLMEXT.js"></script>
-    <link rel="stylesheet" crossorigin href="/bobossauro/assets/index-CTX--CaE.css">
+    <script type="module" crossorigin src="/bobossauro/assets/index-BVUCqXIi.js"></script>
+    <link rel="stylesheet" crossorigin href="/bobossauro/assets/index-CDRaTcQ4.css">
   <link rel="manifest" href="/bobossauro/manifest.webmanifest"></head>
   <body>
     <div id="abertura" aria-hidden="true">
+      <div class="ab-fundo"></div>
+      <div class="ab-faixa"></div>
       <img class="ab-bobo" src="./img/bobo/oi.webp" alt="" />
       <img class="ab-titulo" src="./img/abertura-titulo.webp" alt="" />
     </div>
