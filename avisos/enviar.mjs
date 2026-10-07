@@ -49,7 +49,8 @@ function normalizar(dados) {
     premios: obj(d.premios),
     vales: obj(d.vales),
     meta: typeof d.meta === "number" && d.meta > 0 && d.meta <= 1 ? d.meta : 0.7,
-    avisos: obj(d.avisos)
+    avisos: obj(d.avisos),
+    reacoes: obj(d.reacoes)
   };
 }
 var obj;
