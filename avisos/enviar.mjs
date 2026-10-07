@@ -149,7 +149,7 @@ var init_regras = __esm({
     init_agenda();
     init_tempo();
     ANTES = 12;
-    DEPOIS = 20;
+    DEPOIS = 30;
     EMOJI = {
       biblia: "\u{1F4D6}",
       corrida: "\u{1F45F}",
