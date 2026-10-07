@@ -7,9 +7,17 @@ var __commonJS = (cb, mod) => function __require() {
 };
 
 // app/src/dominio/tempo.ts
+function paraISO(d) {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 function deISO(iso) {
   const [a, m, d] = iso.split("-").map(Number);
   return new Date(a, m - 1, d, 12, 0, 0, 0);
+}
+function somaDias(iso, n) {
+  const d = deISO(iso);
+  d.setDate(d.getDate() + n);
+  return paraISO(d);
 }
 function diaDaSemana(iso) {
   return deISO(iso).getDay();
@@ -144,7 +152,33 @@ function lembretesDevidos(casal, data, min) {
   }
   return out;
 }
-var ANTES, DEPOIS, EMOJI;
+function minutosAteProximo(casal, data, min) {
+  const inscricoes = casal.avisos?.inscricoes ?? {};
+  let menor = Infinity;
+  for (const [dia, desloca] of [
+    [data, 0],
+    [somaDias(data, 1), 1440]
+  ]) {
+    const tarefas = tarefasDoDia(casal, dia).filter((t) => t.pontos > 0);
+    for (const [celular, insc] of Object.entries(inscricoes)) {
+      for (const t of tarefas) {
+        if (!ehDe(t, insc.pessoa)) continue;
+        if (casal.feitos?.[dia]?.[t.id]?.[insc.pessoa]) continue;
+        if (casal.avisos?.enviados?.[dia]?.[t.id]?.[celular]) continue;
+        const falta = t.inicio + desloca - min;
+        if (falta < -DEPOIS) continue;
+        menor = Math.min(menor, Math.max(0, falta - ANTES));
+      }
+    }
+  }
+  return menor;
+}
+function escolherEspera(proxima, temInscricoes) {
+  if (!temInscricoes) return 25;
+  for (const e of ESPERAS) if (e + 3 <= proxima) return e;
+  return 3;
+}
+var ANTES, DEPOIS, EMOJI, ESPERAS;
 var init_regras = __esm({
   "avisos/regras.ts"() {
     init_agenda();
@@ -175,10 +209,12 @@ var init_regras = __esm({
       aventura: "\u{1F392}",
       coracao: "\u2764\uFE0F"
     };
+    ESPERAS = [60, 25, 10, 3];
   }
 });
 
 // avisos/enviar.ts
+import { appendFileSync } from "node:fs";
 import webpush from "web-push";
 var require_enviar = __commonJS({
   "avisos/enviar.ts"() {
@@ -236,6 +272,11 @@ var require_enviar = __commonJS({
       if (!d.idToken) throw new Error("Login no Firebase falhou: " + JSON.stringify(d).slice(0, 200));
       return String(d.idToken);
     }
+    function responder(saida) {
+      const linhas = Object.entries(saida).map(([k, v]) => `${k}=${v}`);
+      console.log("pr\xF3xima passada:", linhas.join(" "));
+      if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, linhas.join("\n") + "\n");
+    }
     async function rodar() {
       const privado = process.env.VAPID_PRIVADO;
       const casais = (process.env.CASAIS ?? "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
@@ -244,6 +285,7 @@ var require_enviar = __commonJS({
       const agoraTeste = process.env.AGORA ? new Date(process.env.AGORA) : /* @__PURE__ */ new Date();
       const { data, min } = agoraSP(agoraTeste);
       const tk = await token();
+      const lidos = [];
       for (const codigo of casais) {
         const r = await fetch(`${BASE}/casais/${codigo}`, { headers: { Authorization: `Bearer ${tk}` } });
         if (!r.ok) {
@@ -264,20 +306,41 @@ var require_enviar = __commonJS({
               { TTL: 1800, urgency: "high" }
             );
             marcar.push([["avisos", "enviados", data, e.tarefa.id, e.celular], Date.now()]);
+            const enviados = (casal.avisos.enviados ??= {})[data] ??= {};
+            (enviados[e.tarefa.id] ??= {})[e.celular] = Date.now();
             console.log(codigo, "enviado", e.tarefa.id, "para", insc.pessoa);
           } catch (err) {
             const status = err.statusCode;
             console.log(codigo, "falhou", e.tarefa.id, status);
-            if (status === 404 || status === 410) apagar.push(["avisos", "inscricoes", e.celular]);
+            if (status === 404 || status === 410) {
+              apagar.push(["avisos", "inscricoes", e.celular]);
+              delete casal.avisos.inscricoes[e.celular];
+            }
           }
         }
+        lidos.push({ codigo, casal, marcar, apagar, enviou: envios.length > 0 });
+      }
+      let proxima = Infinity;
+      let temInscricoes = false;
+      let ultimoDia = "";
+      for (const { casal } of lidos) {
+        proxima = Math.min(proxima, minutosAteProximo(casal, data, min));
+        if (Object.keys(casal.avisos?.inscricoes ?? {}).length > 0) temInscricoes = true;
+        if (casal.periodo?.fim && casal.periodo.fim > ultimoDia) ultimoDia = casal.periodo.fim;
+      }
+      const espera = escolherEspera(proxima, temInscricoes);
+      const parar = ultimoDia !== "" && data > somaDias(ultimoDia, 1);
+      for (const { codigo, casal, marcar, apagar, enviou } of lidos) {
         const ultima = casal.avisos?.ultimaRodada ?? 0;
-        if (marcar.length > 0 || Date.now() - ultima > 15 * 60 * 1e3) marcar.push([["avisos", "ultimaRodada"], Date.now()]);
-        if (marcar.length === 1 && apagar.length === 0 && envios.length === 0) console.log(codigo, "nada a avisar", data, hora(min), "(sinal de vida)");
+        if (marcar.length > 0 || espera >= 10 || Date.now() - ultima > 15 * 60 * 1e3) {
+          marcar.push([["avisos", "ultimaRodada"], Date.now()]);
+          marcar.push([["avisos", "proximaRodada"], Date.now() + (espera + 2) * 60 * 1e3]);
+        }
         if (marcar.length === 0 && apagar.length === 0) {
           console.log(codigo, "nada a avisar", data, hora(min));
           continue;
         }
+        if (!enviou && apagar.length === 0) console.log(codigo, "nada a avisar", data, hora(min), "(sinal de vida)");
         const corpo = {};
         for (const [caminho, v] of marcar) {
           let atual = corpo;
@@ -295,6 +358,7 @@ var require_enviar = __commonJS({
         });
         console.log(codigo, "registro", w.status);
       }
+      responder({ espera, parar: parar ? 1 : 0, proxima: Number.isFinite(proxima) ? proxima : "nenhuma" });
     }
     if (process.argv[1] && /enviar\.(m?js|ts)$/.test(process.argv[1])) {
       rodar().catch((e) => {

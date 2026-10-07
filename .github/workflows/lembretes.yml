@@ -1,5 +1,8 @@
 name: Lembretes
 
+# O carteiro passa, manda o que estiver na hora e marca sozinho a próxima passada: o job "seguir" espera
+# num ambiente do GitHub com tempo de espera (3, 10, 25 ou 60 min, sem máquina ligada durante a espera)
+# e chama este mesmo workflow de novo. O agendador do GitHub (schedule) fica só de reserva.
 on:
   schedule:
     - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * *'
@@ -7,14 +10,22 @@ on:
   push:
     branches: [main]
 
+# Uma passada por vez; passadas a mais na fila são descartadas (fica sempre uma corrente só).
 concurrency:
   group: lembretes
   cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write
 
 jobs:
   enviar:
     runs-on: ubuntu-latest
     timeout-minutes: 4
+    outputs:
+      espera: ${{ steps.mandar.outputs.espera }}
+      parar: ${{ steps.mandar.outputs.parar }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,9 +37,29 @@ jobs:
         working-directory: avisos
         run: npm install --no-audit --no-fund
       - name: Mandar lembretes
+        id: mandar
         working-directory: avisos
         env:
           VAPID_PRIVADO: ${{ secrets.VAPID_PRIVADO }}
           FIREBASE_REFRESH: ${{ secrets.FIREBASE_REFRESH }}
           CASAIS: ${{ secrets.CASAIS }}
         run: node enviar.mjs
+
+  seguir:
+    needs: enviar
+    if: ${{ always() && needs.enviar.outputs.parar != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    environment:
+      name: espera-${{ needs.enviar.outputs.espera || '3' }}
+      deployment: false
+    steps:
+      - name: Marcar a próxima passada
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Trava de segurança: nunca menos de 2,5 min entre uma passada e outra.
+          INICIO=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .run_started_at)
+          DECORRIDO=$(( $(date +%s) - $(date -d "$INICIO" +%s) ))
+          if [ "$DECORRIDO" -lt 150 ]; then sleep $(( 150 - DECORRIDO )); fi
+          gh workflow run lembretes.yml --repo "$GITHUB_REPOSITORY" --ref main
