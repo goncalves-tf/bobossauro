@@ -1,0 +1,14 @@
+name: Teste da agenda
+
+# Diagnóstico: só confirma se o agendador do GitHub está disparando neste repositório.
+on:
+  schedule:
+    - cron: '23,53 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: echo "agenda funcionando $(date -u)"
