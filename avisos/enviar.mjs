@@ -68,6 +68,18 @@ function ordenar(a, b) {
   return a.inicio - b.inicio || ORDEM_QUEM[a.quem] - ORDEM_QUEM[b.quem] || a.titulo.localeCompare(b.titulo, "pt-BR");
 }
 function tarefasDoDia(casal, data) {
+  let porDia = cacheTarefas.get(casal);
+  if (!porDia) {
+    porDia = /* @__PURE__ */ new Map();
+    cacheTarefas.set(casal, porDia);
+  }
+  const pronto = porDia.get(data);
+  if (pronto) return pronto;
+  const calculado = calcularTarefasDoDia(casal, data);
+  porDia.set(data, calculado);
+  return calculado;
+}
+function calcularTarefasDoDia(casal, data) {
   const modelo = modeloDoDia(casal, data);
   const dow = diaDaSemana(data);
   const dia = casal.dias?.[data] ?? {};
@@ -91,11 +103,12 @@ function tarefasDoDia(casal, data) {
 function ehDe(t, p) {
   return t.quem === p || t.quem === "juntos";
 }
-var ORDEM_QUEM;
+var ORDEM_QUEM, cacheTarefas;
 var init_agenda = __esm({
   "app/src/dominio/agenda.ts"() {
     init_tempo();
     ORDEM_QUEM = { juntos: 0, ele: 1, ela: 2 };
+    cacheTarefas = /* @__PURE__ */ new WeakMap();
   }
 });
 
