@@ -1,0 +1,255 @@
+// avisos/enviar.ts
+import webpush from "web-push";
+
+// app/src/dominio/tempo.ts
+var pad = (n) => String(n).padStart(2, "0");
+function deISO(iso) {
+  const [a, m, d] = iso.split("-").map(Number);
+  return new Date(a, m - 1, d, 12, 0, 0, 0);
+}
+function diaDaSemana(iso) {
+  return deISO(iso).getDay();
+}
+function hora(min) {
+  const m = (Math.round(min) % 1440 + 1440) % 1440;
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return r === 0 ? `${h}h` : `${h}h${pad(r)}`;
+}
+
+// app/src/dominio/agenda.ts
+var ORDEM_QUEM = { juntos: 0, ele: 1, ela: 2 };
+function modeloDoDia(casal, data) {
+  const id = casal.calendario?.[data];
+  return id ? casal.modelos?.[id] : void 0;
+}
+function ordenar(a, b) {
+  return a.inicio - b.inicio || ORDEM_QUEM[a.quem] - ORDEM_QUEM[b.quem] || a.titulo.localeCompare(b.titulo, "pt-BR");
+}
+function tarefasDoDia(casal, data) {
+  const modelo = modeloDoDia(casal, data);
+  const dow = diaDaSemana(data);
+  const dia = casal.dias?.[data] ?? {};
+  const out = [];
+  if (modelo) {
+    for (const base of Object.values(modelo.tarefas ?? {})) {
+      if (base.diasSemana && base.diasSemana.length > 0 && !base.diasSemana.includes(dow)) continue;
+      const aj = dia.ajustes?.[base.id];
+      if (aj?.removida) continue;
+      const { removida: _r, ...campos2 } = aj ?? {};
+      void _r;
+      const ajustada = !!aj && Object.keys(campos2).some((k) => k !== "nota");
+      out.push({ ...base, ...campos2, id: base.id, origem: "modelo", modeloId: modelo.id, ajustada });
+    }
+  }
+  for (const extra of Object.values(dia.extras ?? {})) {
+    out.push({ ...extra, origem: "extra", ajustada: false });
+  }
+  return out.sort(ordenar);
+}
+function ehDe(t, p) {
+  return t.quem === p || t.quem === "juntos";
+}
+
+// app/src/dados/normalizar.ts
+var obj = (v) => v && typeof v === "object" ? v : {};
+function normalizar(dados) {
+  const d = obj(dados);
+  const pessoas = obj(d.pessoas);
+  return {
+    versao: 1,
+    criadoEm: typeof d.criadoEm === "number" ? d.criadoEm : 0,
+    pessoas: {
+      ele: { nome: pessoas.ele?.nome || "Ele" },
+      ela: { nome: pessoas.ela?.nome || "Ela" }
+    },
+    periodo: {
+      inicio: d.periodo?.inicio || "2026-10-07",
+      fim: d.periodo?.fim || "2026-10-19"
+    },
+    modelos: obj(d.modelos),
+    calendario: obj(d.calendario),
+    dias: obj(d.dias),
+    feitos: obj(d.feitos),
+    premios: obj(d.premios),
+    vales: obj(d.vales),
+    meta: typeof d.meta === "number" && d.meta > 0 && d.meta <= 1 ? d.meta : 0.7,
+    avisos: obj(d.avisos)
+  };
+}
+
+// avisos/enviar.ts
+var PROJETO = "bobossauro-27c72";
+var API_KEY = "AIzaSyB4xnyHs6ko8a_5Ck0hf7p4h5gHCHsIKcY";
+var VAPID_PUBLICO = "BN1ekIQCkpC-6-b3dTJNrR809PdwAqieLfLvOFrm-kK4CVK1A9yTVpyoFe0CRsaD9Na-qJg_eKXl_yDLyuz-vYc";
+var ANTES = 12;
+var DEPOIS = 20;
+var BASE = `https://firestore.googleapis.com/v1/projects/${PROJETO}/databases/(default)/documents`;
+var EMOJI = {
+  biblia: "\u{1F4D6}",
+  corrida: "\u{1F45F}",
+  mar: "\u{1F30A}",
+  academia: "\u{1F3CB}\uFE0F",
+  teatro: "\u{1F3AD}",
+  ensaio: "\u{1F3AC}",
+  estrela: "\u2B50",
+  canto: "\u{1F3A4}",
+  aulacanto: "\u{1F3BC}",
+  violao: "\u{1F3B8}",
+  livro: "\u{1F4D8}",
+  livrocasal: "\u{1F4DA}",
+  ia: "\u{1F916}",
+  carreira: "\u{1F680}",
+  desenvolvimento: "\u{1F331}",
+  cuidar: "\u{1F9F4}",
+  cochilo: "\u{1F634}",
+  serie: "\u{1F4FA}",
+  celula: "\u{1F3E0}",
+  ebd: "\u26EA",
+  aventura: "\u{1F392}",
+  coracao: "\u2764\uFE0F"
+};
+function valor(v) {
+  if ("stringValue" in v) return v.stringValue;
+  if ("integerValue" in v) return Number(v.integerValue);
+  if ("doubleValue" in v) return Number(v.doubleValue);
+  if ("booleanValue" in v) return v.booleanValue;
+  if ("nullValue" in v) return null;
+  if ("timestampValue" in v) return Date.parse(String(v.timestampValue));
+  if ("mapValue" in v) return campos(v.mapValue.fields ?? {});
+  if ("arrayValue" in v) return (v.arrayValue.values ?? []).map(valor);
+  return void 0;
+}
+function campos(f) {
+  const o = {};
+  for (const [k, v] of Object.entries(f)) o[k] = valor(v);
+  return o;
+}
+function codificar(x) {
+  if (x === null || x === void 0) return { nullValue: null };
+  if (typeof x === "number") return Number.isInteger(x) ? { integerValue: String(x) } : { doubleValue: x };
+  if (typeof x === "string") return { stringValue: x };
+  if (typeof x === "boolean") return { booleanValue: x };
+  if (Array.isArray(x)) return { arrayValue: { values: x.map(codificar) } };
+  const fields = {};
+  for (const [k, v] of Object.entries(x)) fields[k] = codificar(v);
+  return { mapValue: { fields } };
+}
+var segmento = (s) => /^[A-Za-z_][A-Za-z_0-9]*$/.test(s) ? s : "`" + s.replace(/\\/g, "\\\\").replace(/`/g, "\\`") + "`";
+async function token() {
+  const refresh = process.env.FIREBASE_REFRESH;
+  if (refresh) {
+    const r2 = await fetch(`https://securetoken.googleapis.com/v1/token?key=${API_KEY}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(refresh)}`
+    });
+    const d2 = await r2.json();
+    if (d2.id_token) return String(d2.id_token);
+  }
+  const r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${API_KEY}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ returnSecureToken: true })
+  });
+  const d = await r.json();
+  if (!d.idToken) throw new Error("Login no Firebase falhou: " + JSON.stringify(d).slice(0, 200));
+  return String(d.idToken);
+}
+function agoraSP(agora = /* @__PURE__ */ new Date()) {
+  const partes = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(agora).map((p) => [p.type, p.value])
+  );
+  return { data: `${partes.year}-${partes.month}-${partes.day}`, min: Number(partes.hour) * 60 + Number(partes.minute) };
+}
+function lembretesDevidos(casal, data, min) {
+  const out = [];
+  const inscricoes = casal.avisos?.inscricoes ?? {};
+  if (Object.keys(inscricoes).length === 0) return out;
+  const tarefas = tarefasDoDia(casal, data).filter((t) => t.pontos > 0);
+  for (const [celular, insc] of Object.entries(inscricoes)) {
+    for (const t of tarefas) {
+      if (!ehDe(t, insc.pessoa)) continue;
+      const falta = t.inicio - min;
+      if (falta > ANTES || falta < -DEPOIS) continue;
+      if (casal.feitos?.[data]?.[t.id]?.[insc.pessoa]) continue;
+      if (casal.avisos?.enviados?.[data]?.[t.id]?.[celular]) continue;
+      const nome = casal.pessoas[insc.pessoa].nome;
+      const outro = casal.pessoas[insc.pessoa === "ele" ? "ela" : "ele"].nome;
+      const emoji = EMOJI[t.figura] ?? "\u{1F996}";
+      const titulo = `${emoji} ${t.titulo} \xE0s ${hora(t.inicio)}`;
+      const quando = falta > 1 ? `Daqui a ${falta} min.` : falta >= -1 ? "\xC9 agora!" : "J\xE1 come\xE7ou.";
+      const junto = t.quem === "juntos" ? ` Chama ${outro === "Ela" || outro === "Ele" ? "o amor" : outro}!` : "";
+      const corpo = `${quando}${junto} Bora, ${nome}? Vale ${t.pontos} folhas \u{1F343}`;
+      out.push({ celular, tarefa: t, titulo, corpo });
+    }
+  }
+  return out;
+}
+async function rodar() {
+  const privado = process.env.VAPID_PRIVADO;
+  const casais = (process.env.CASAIS ?? "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+  if (!privado || casais.length === 0) throw new Error("Faltam VAPID_PRIVADO ou CASAIS");
+  webpush.setVapidDetails("https://goncalves-tf.github.io/bobossauro/", VAPID_PUBLICO, privado);
+  const agoraTeste = process.env.AGORA ? new Date(process.env.AGORA) : /* @__PURE__ */ new Date();
+  const { data, min } = agoraSP(agoraTeste);
+  const tk = await token();
+  for (const codigo of casais) {
+    const r = await fetch(`${BASE}/casais/${codigo}`, { headers: { Authorization: `Bearer ${tk}` } });
+    if (!r.ok) {
+      console.log(codigo, "sem acesso", r.status);
+      continue;
+    }
+    const doc = await r.json();
+    const casal = normalizar(campos(doc.fields ?? {}));
+    const envios = lembretesDevidos(casal, data, min);
+    const marcar = [];
+    const apagar = [];
+    for (const e of envios) {
+      const insc = casal.avisos.inscricoes[e.celular];
+      try {
+        await webpush.sendNotification(
+          { endpoint: insc.endpoint, keys: { p256dh: insc.p256dh, auth: insc.auth } },
+          JSON.stringify({ title: e.titulo, body: e.corpo, tag: `${data}-${e.tarefa.id}` }),
+          { TTL: 1800, urgency: "high" }
+        );
+        marcar.push([["avisos", "enviados", data, e.tarefa.id, e.celular], Date.now()]);
+        console.log(codigo, "enviado", e.tarefa.id, "para", insc.pessoa);
+      } catch (err) {
+        const status = err.statusCode;
+        console.log(codigo, "falhou", e.tarefa.id, status);
+        if (status === 404 || status === 410) apagar.push(["avisos", "inscricoes", e.celular]);
+      }
+    }
+    if (marcar.length === 0 && apagar.length === 0) {
+      console.log(codigo, "nada a avisar", data, hora(min));
+      continue;
+    }
+    const corpo = {};
+    for (const [caminho, v] of marcar) {
+      let atual = corpo;
+      caminho.forEach((k, i) => {
+        if (i === caminho.length - 1) atual[k] = v;
+        else atual = atual[k] ??= {};
+      });
+    }
+    const mascara = [...marcar.map(([c]) => c), ...apagar].map((c) => "updateMask.fieldPaths=" + encodeURIComponent(c.map(segmento).join("."))).join("&");
+    const fields = codificar(corpo).mapValue.fields;
+    const w = await fetch(`${BASE}/casais/${codigo}?${mascara}&currentDocument.exists=true`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${tk}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ fields })
+    });
+    console.log(codigo, "registro", w.status);
+  }
+}
+if (process.argv[1] && /enviar\.(m?js|ts)$/.test(process.argv[1])) {
+  rodar().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}
+export {
+  agoraSP,
+  lembretesDevidos
+};

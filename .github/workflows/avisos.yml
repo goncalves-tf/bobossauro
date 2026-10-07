@@ -1,0 +1,32 @@
+name: Lembretes do Bobossauro
+
+on:
+  schedule:
+    - cron: '3-59/5 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: lembretes
+  cancel-in-progress: false
+
+jobs:
+  enviar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: avisos
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Instalar
+        working-directory: avisos
+        run: npm install --no-audit --no-fund
+      - name: Mandar lembretes
+        working-directory: avisos
+        env:
+          VAPID_PRIVADO: ${{ secrets.VAPID_PRIVADO }}
+          FIREBASE_REFRESH: ${{ secrets.FIREBASE_REFRESH }}
+          CASAIS: ${{ secrets.CASAIS }}
+        run: node enviar.mjs
