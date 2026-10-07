@@ -271,6 +271,9 @@ var require_enviar = __commonJS({
             if (status === 404 || status === 410) apagar.push(["avisos", "inscricoes", e.celular]);
           }
         }
+        const ultima = casal.avisos?.ultimaRodada ?? 0;
+        if (marcar.length > 0 || Date.now() - ultima > 15 * 60 * 1e3) marcar.push([["avisos", "ultimaRodada"], Date.now()]);
+        if (marcar.length === 1 && apagar.length === 0 && envios.length === 0) console.log(codigo, "nada a avisar", data, hora(min), "(sinal de vida)");
         if (marcar.length === 0 && apagar.length === 0) {
           console.log(codigo, "nada a avisar", data, hora(min));
           continue;
